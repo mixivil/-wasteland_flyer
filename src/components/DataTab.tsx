@@ -18,14 +18,14 @@ interface Task {
     correctAnswer: string;
   }>;
   userAnswers?: string[];
-  audioUrl?: string; // ✅ audio for a task
+  audioUrl?: string;
 }
 
 interface DataTabProps {
   updateStats: (statUpdates: Partial<Stats>) => void;
 }
 
-const DATA_VERSION = '4.7'; // bumped: styled range for task 6 audio
+const DATA_VERSION = '4.7';
 
 const defaultTasks: Task[] = [
   {
@@ -100,7 +100,7 @@ const defaultTasks: Task[] = [
     reward: 300,
     status: 'locked',
     correctAnswer: 'Студия',
-    audioUrl: '/tracks/signal.mp3' // файл в public/tracks/signal.mp3
+    audioUrl: '/tracks/signal.mp3'
   },
   {
     id: 7,
@@ -123,10 +123,26 @@ export function DataTab({ updateStats }: DataTabProps) {
   const [surveyAnswers, setSurveyAnswers] = useState<string[]>([]);
   const [surveyResults, setSurveyResults] = useState<boolean[]>([]);
 
+  // ✅ финальное модальное окно (нельзя закрыть)
+  const [showElectionModal, setShowElectionModal] = useState(false);
+
   // ✅ audio state
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioVolume, setAudioVolume] = useState(75);
+
+  // ✅ чтобы не было “сбросов” из-за старых таймеров
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearResetTimer = () => {
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => clearResetTimer();
+  }, []);
 
   const [tasks, setTasks] = useState<Task[]>(() => {
     const version = localStorage.getItem('pipboy-data-version');
@@ -178,6 +194,8 @@ export function DataTab({ updateStats }: DataTabProps) {
   const handleSurveySubmit = () => {
     if (!selectedTask || selectedTask.type !== 'survey' || !selectedTask.questions) return;
 
+    clearResetTimer();
+
     const allAnswered =
       surveyAnswers.length === selectedTask.questions.length &&
       surveyAnswers.every((answer) => answer.trim() !== '');
@@ -211,7 +229,8 @@ export function DataTab({ updateStats }: DataTabProps) {
 
       setTasks(unlockedTasks);
 
-      setTimeout(() => {
+      // ✅ обычное поведение: сбросить UI через 3 сек
+      resetTimerRef.current = setTimeout(() => {
         setShowResult(false);
         setSurveyAnswers([]);
         setSurveyResults([]);
@@ -224,7 +243,7 @@ export function DataTab({ updateStats }: DataTabProps) {
         )
       );
 
-      setTimeout(() => {
+      resetTimerRef.current = setTimeout(() => {
         setShowResult(false);
         setSurveyResults([]);
       }, 3000);
@@ -234,7 +253,8 @@ export function DataTab({ updateStats }: DataTabProps) {
   const handleSubmit = () => {
     if (!selectedTask || !inputAnswer.trim()) return;
 
-    // ✅ Case-insensitive compare
+    clearResetTimer();
+
     const normalizedInput = inputAnswer.trim().toLowerCase();
     const normalizedCorrect = (selectedTask.correctAnswer ?? '').trim().toLowerCase();
     const correct = normalizedInput === normalizedCorrect;
@@ -250,14 +270,23 @@ export function DataTab({ updateStats }: DataTabProps) {
       );
 
       const currentIndex = tasks.findIndex((t) => t.id === selectedTask.id);
+      const isLastTask = currentIndex === tasks.length - 1;
+
+      // Unlock next task if any (не нужно для последнего)
       const unlockedTasks =
-        currentIndex < tasks.length - 1 && tasks[currentIndex + 1].status === 'locked'
+        !isLastTask && currentIndex < tasks.length - 1 && tasks[currentIndex + 1].status === 'locked'
           ? updatedTasks.map((task, idx) =>
               idx === currentIndex + 1 ? { ...task, status: 'available' as const } : task
             )
           : updatedTasks;
 
       setTasks(unlockedTasks);
+
+      // ✅ ЕСЛИ ЭТО ПОСЛЕДНЕЕ ЗАДАНИЕ — показываем НЕЗАКРЫВАЕМОЕ модальное окно
+      if (isLastTask) {
+        setShowElectionModal(true);
+        return; // ⛔ никаких таймеров/сбросов дальше
+      }
     } else {
       setTasks(
         tasks.map((task) =>
@@ -266,7 +295,8 @@ export function DataTab({ updateStats }: DataTabProps) {
       );
     }
 
-    setTimeout(() => {
+    // обычный таймер сброса (для НЕ последнего задания)
+    resetTimerRef.current = setTimeout(() => {
       setShowResult(false);
       setInputAnswer('');
       if (correct) setSelectedTask(null);
@@ -299,7 +329,73 @@ export function DataTab({ updateStats }: DataTabProps) {
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
+      {/* ✅ НЕЗАКРЫВАЕМОЕ МОДАЛЬНОЕ ОКНО */}
+      {showElectionModal && (
+        <div className="absolute inset-0 z-50">
+          {/* затемнение + шум/скан */}
+          <div className="absolute inset-0 bg-black/95" />
+          <div
+            className="absolute inset-0 opacity-15 pointer-events-none"
+            style={{
+              backgroundImage:
+                'linear-gradient(to bottom, rgba(0,255,0,0.18) 1px, transparent 1px)',
+              backgroundSize: '100% 6px'
+            }}
+          />
+          <div
+            className="absolute inset-0 opacity-10 pointer-events-none"
+            style={{
+              backgroundImage:
+                'radial-gradient(rgba(0,255,0,0.12) 1px, transparent 1px)',
+              backgroundSize: '3px 3px'
+            }}
+          />
+
+          <div className="absolute inset-0 flex items-center justify-center p-6">
+            <div
+              className="w-full max-w-3xl border border-green-400/60 bg-black/80 p-6 md:p-8"
+              style={{
+                boxShadow: '0 0 40px rgba(0,255,0,0.25), inset 0 0 30px rgba(0,255,0,0.08)'
+              }}
+            >
+              <div
+                className="text-xs opacity-70 mb-3 tracking-widest"
+                style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}
+              >
+                {'>'} SYSTEM ALERT
+              </div>
+
+              <div
+                className="text-2xl md:text-3xl tracking-wider text-green-400 animate-pulse"
+                style={{ textShadow: '0 0 16px rgba(0,255,0,0.75)' }}
+              >
+                ВНИМАНИЕ
+              </div>
+
+              <div className="mt-4 border border-green-400/30 p-4">
+                <div
+                  className="text-lg md:text-xl leading-relaxed tracking-wide"
+                  style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}
+                >
+                  ИНИЦИИРОВАН ЗАПУСК ГОЛОСОВАНИЯ
+                  <br />
+                  ПО СМЕНЕ СМОТРИТЕЛЯ
+                </div>
+              </div>
+
+              <div className="mt-6 text-xs opacity-70 tracking-widest">
+                {'>'} INPUT LOCKED
+                <span className="inline-block ml-2 animate-pulse">▮</span>
+              </div>
+            </div>
+          </div>
+
+          {/* блокируем клики полностью */}
+          <div className="absolute inset-0" />
+        </div>
+      )}
+
       <div className="flex justify-between items-start mb-4">
         <div className="text-lg tracking-wider" style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.5)' }}>
           {'>'} ТЕРМИНАЛЬНЫЕ ЗАДАЧИ
@@ -317,18 +413,18 @@ export function DataTab({ updateStats }: DataTabProps) {
             <button
               key={task.id}
               onClick={() => {
+                clearResetTimer();
+
                 if (task.status === 'available') {
                   setSelectedTask(task);
                   setInputAnswer(task.userAnswer || '');
                   setShowResult(false);
 
-                  // init survey inputs
                   if (task.type === 'survey' && task.questions) {
                     setSurveyAnswers(task.userAnswers || new Array(task.questions.length).fill(''));
                     setSurveyResults([]);
                   }
 
-                  // stop audio when opening a task (safe)
                   setIsAudioPlaying(false);
                   if (audioRef.current) {
                     audioRef.current.pause();
@@ -376,7 +472,6 @@ export function DataTab({ updateStats }: DataTabProps) {
                 <div className="text-sm leading-relaxed">{selectedTask.question}</div>
               </div>
 
-              {/* ✅ AUDIO PLAYER if audioUrl exists (task 6) */}
               {selectedTask.audioUrl && (
                 <div className="border border-green-400/30 p-3">
                   <div className="text-xs opacity-70 mb-2">АУДИО:</div>
@@ -399,8 +494,6 @@ export function DataTab({ updateStats }: DataTabProps) {
 
                     <div className="flex items-center gap-2 flex-1">
                       <Volume2 size={18} className="opacity-80" />
-
-                      {/* ✅ Radio-like slider */}
                       <input
                         type="range"
                         min={0}
@@ -410,7 +503,6 @@ export function DataTab({ updateStats }: DataTabProps) {
                         className="radio-range"
                         aria-label="Volume"
                       />
-
                       <div className="text-xs opacity-70 w-10 text-right">{audioVolume}%</div>
                     </div>
                   </div>
