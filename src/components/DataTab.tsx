@@ -166,7 +166,7 @@ export function DataTab({ updateStats }: DataTabProps) {
   }, [audioVolume]);
 
   useEffect(() => {
-    // Stop audio on task switch
+    // Stop audio on task switch?
     setIsAudioPlaying(false);
     if (audioRef.current) {
       audioRef.current.pause();
