@@ -25,7 +25,7 @@ interface DataTabProps {
   updateStats: (statUpdates: Partial<Stats>) => void;
 }
 
-const DATA_VERSION = '4.7';
+const DATA_VERSION = '4.8';
 
 const defaultTasks: Task[] = [
   {
