@@ -63,7 +63,7 @@ const defaultTasks: Task[] = [
   },
   {
     id: 3,
-    title: 'КРАНЕОЛОГИЯ',
+    title: 'КРАНИОЛОГИЯ',
     description: 'Помогите ученому в его лаборатории! Кому принадлежит загаданный череп?',
     question: 'Кому принадлежит череп?',
     difficulty: 'EASY',
@@ -73,8 +73,8 @@ const defaultTasks: Task[] = [
   },
   {
     id: 4,
-    title: 'БЕЗ ОТВЕТА',
-    description: 'Ученый нашел загадочное вещество, необходимое для спасения убежища.',
+    title: 'ЛЕТОПИСЬ',
+    description: 'Знание истории ключ ко всему.',
     question: 'Какие вызовы бросает нам стремительно грядущее будущее? Что может послужить причиной раскола убежища?',
     difficulty: 'MEDIUM',
     reward: 250,
@@ -83,7 +83,7 @@ const defaultTasks: Task[] = [
   },
   {
     id: 5,
-    title: 'Открытие столетия',
+    title: 'ОТКРЫТИЕ СТОЛЕТИЯ',
     description: 'Ученый нашел загадочное вещество, необходимое для спасение убежища.',
     question: 'Помогите ученому выяснить, что это.',
     difficulty: 'MEDIUM',
@@ -99,19 +99,19 @@ const defaultTasks: Task[] = [
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: '42',
+    correctAnswer: 'Студия',
     audioUrl: '/tracks/signal.mp3' // файл в public/tracks/signal.mp3
   },
   {
     id: 7,
-    title: 'Выбор есть?',
+    title: 'ВЫБОР ЕСТЬ?',
     description:
       'Если вы дошли до этого этапа, значит вы готовы пользоваться силой демократии для выбора основного смотрителя.',
     question: 'Введите код для разблокировки',
     difficulty: 'HARD',
     reward: 500,
     status: 'locked',
-    correctAnswer: '1910'
+    correctAnswer: '42'
   }
 ];
 
