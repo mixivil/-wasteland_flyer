@@ -23,9 +23,13 @@ interface Task {
 
 interface DataTabProps {
   updateStats: (statUpdates: Partial<Stats>) => void;
+
+  // ✅ НОВОЕ: блокируем переключение вкладок в App
+  setUiLocked: (locked: boolean) => void;
 }
 
 const DATA_VERSION = '4.8';
+const LAST_TASK_ID = 7; // ✅ “последнее задание” теперь по id, не по индексу
 
 const defaultTasks: Task[] = [
   {
@@ -115,7 +119,7 @@ const defaultTasks: Task[] = [
   }
 ];
 
-export function DataTab({ updateStats }: DataTabProps) {
+export function DataTab({ updateStats, setUiLocked }: DataTabProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [inputAnswer, setInputAnswer] = useState('');
   const [showResult, setShowResult] = useState(false);
@@ -131,7 +135,7 @@ export function DataTab({ updateStats }: DataTabProps) {
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioVolume, setAudioVolume] = useState(75);
 
-  // ✅ чтобы не было “сбросов” из-за старых таймеров
+  // ✅ анти-сбросы из таймеров
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearResetTimer = () => {
     if (resetTimerRef.current) {
@@ -166,13 +170,24 @@ export function DataTab({ updateStats }: DataTabProps) {
   }, [audioVolume]);
 
   useEffect(() => {
-    // Stop audio on task switch?
+    // Stop audio on task switch
     setIsAudioPlaying(false);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
   }, [selectedTask?.id]);
+
+  // ✅ ЛОЧИМ ВЕСЬ UI (навигацию по разделам) пока модалка активна
+  useEffect(() => {
+    if (showElectionModal) {
+      setUiLocked(true);
+    }
+    // cleanup на случай размонтирования или если ты когда-нибудь решишь закрывать модалку
+    return () => {
+      setUiLocked(false);
+    };
+  }, [showElectionModal, setUiLocked]);
 
   const toggleAudio = async () => {
     const el = audioRef.current;
@@ -229,7 +244,6 @@ export function DataTab({ updateStats }: DataTabProps) {
 
       setTasks(unlockedTasks);
 
-      // ✅ обычное поведение: сбросить UI через 3 сек
       resetTimerRef.current = setTimeout(() => {
         setShowResult(false);
         setSurveyAnswers([]);
@@ -270,9 +284,10 @@ export function DataTab({ updateStats }: DataTabProps) {
       );
 
       const currentIndex = tasks.findIndex((t) => t.id === selectedTask.id);
-      const isLastTask = currentIndex === tasks.length - 1;
 
-      // Unlock next task if any (не нужно для последнего)
+      // ✅ ПОСЛЕДНЕЕ ЗАДАНИЕ определяем по id
+      const isLastTask = selectedTask.id === LAST_TASK_ID;
+
       const unlockedTasks =
         !isLastTask && currentIndex < tasks.length - 1 && tasks[currentIndex + 1].status === 'locked'
           ? updatedTasks.map((task, idx) =>
@@ -282,10 +297,10 @@ export function DataTab({ updateStats }: DataTabProps) {
 
       setTasks(unlockedTasks);
 
-      // ✅ ЕСЛИ ЭТО ПОСЛЕДНЕЕ ЗАДАНИЕ — показываем НЕЗАКРЫВАЕМОЕ модальное окно
+      // ✅ ПОСЛЕДНЕЕ: показываем незакрываемую модалку и лочим UI
       if (isLastTask) {
         setShowElectionModal(true);
-        return; // ⛔ никаких таймеров/сбросов дальше
+        return;
       }
     } else {
       setTasks(
@@ -295,7 +310,6 @@ export function DataTab({ updateStats }: DataTabProps) {
       );
     }
 
-    // обычный таймер сброса (для НЕ последнего задания)
     resetTimerRef.current = setTimeout(() => {
       setShowResult(false);
       setInputAnswer('');
@@ -330,24 +344,22 @@ export function DataTab({ updateStats }: DataTabProps) {
 
   return (
     <div className="h-full flex flex-col relative">
-      {/* ✅ НЕЗАКРЫВАЕМОЕ МОДАЛЬНОЕ ОКНО */}
+      {/* ✅ НЕЗАКРЫВАЕМОЕ МОДАЛЬНОЕ ОКНО + блок ввода */}
       {showElectionModal && (
         <div className="absolute inset-0 z-50">
-          {/* затемнение + шум/скан */}
           <div className="absolute inset-0 bg-black/95" />
+
           <div
             className="absolute inset-0 opacity-15 pointer-events-none"
             style={{
-              backgroundImage:
-                'linear-gradient(to bottom, rgba(0,255,0,0.18) 1px, transparent 1px)',
+              backgroundImage: 'linear-gradient(to bottom, rgba(0,255,0,0.18) 1px, transparent 1px)',
               backgroundSize: '100% 6px'
             }}
           />
           <div
             className="absolute inset-0 opacity-10 pointer-events-none"
             style={{
-              backgroundImage:
-                'radial-gradient(rgba(0,255,0,0.12) 1px, transparent 1px)',
+              backgroundImage: 'radial-gradient(rgba(0,255,0,0.12) 1px, transparent 1px)',
               backgroundSize: '3px 3px'
             }}
           />
@@ -359,25 +371,16 @@ export function DataTab({ updateStats }: DataTabProps) {
                 boxShadow: '0 0 40px rgba(0,255,0,0.25), inset 0 0 30px rgba(0,255,0,0.08)'
               }}
             >
-              <div
-                className="text-xs opacity-70 mb-3 tracking-widest"
-                style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}
-              >
+              <div className="text-xs opacity-70 mb-3 tracking-widest" style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}>
                 {'>'} SYSTEM ALERT
               </div>
 
-              <div
-                className="text-2xl md:text-3xl tracking-wider text-green-400 animate-pulse"
-                style={{ textShadow: '0 0 16px rgba(0,255,0,0.75)' }}
-              >
+              <div className="text-2xl md:text-3xl tracking-wider text-green-400 animate-pulse" style={{ textShadow: '0 0 16px rgba(0,255,0,0.75)' }}>
                 ВНИМАНИЕ
               </div>
 
               <div className="mt-4 border border-green-400/30 p-4">
-                <div
-                  className="text-lg md:text-xl leading-relaxed tracking-wide"
-                  style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}
-                >
+                <div className="text-lg md:text-xl leading-relaxed tracking-wide" style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}>
                   ИНИЦИИРОВАН ЗАПУСК ГОЛОСОВАНИЯ
                   <br />
                   ПО СМЕНЕ СМОТРИТЕЛЯ
@@ -385,8 +388,7 @@ export function DataTab({ updateStats }: DataTabProps) {
               </div>
 
               <div className="mt-6 text-xs opacity-70 tracking-widest">
-                {'>'} INPUT LOCKED
-                <span className="inline-block ml-2 animate-pulse">▮</span>
+                {'>'} INPUT LOCKED <span className="inline-block ml-2 animate-pulse">▮</span>
               </div>
             </div>
           </div>
@@ -476,12 +478,7 @@ export function DataTab({ updateStats }: DataTabProps) {
                 <div className="border border-green-400/30 p-3">
                   <div className="text-xs opacity-70 mb-2">АУДИО:</div>
 
-                  <audio
-                    ref={audioRef}
-                    src={selectedTask.audioUrl}
-                    onEnded={() => setIsAudioPlaying(false)}
-                    preload="metadata"
-                  />
+                  <audio ref={audioRef} src={selectedTask.audioUrl} onEnded={() => setIsAudioPlaying(false)} preload="metadata" />
 
                   <div className="flex items-center gap-3">
                     <button
@@ -518,10 +515,7 @@ export function DataTab({ updateStats }: DataTabProps) {
                   }`}
                   style={{ boxShadow: isCorrect ? '0 0 20px rgba(0, 255, 0, 0.3)' : 'none' }}
                 >
-                  <div
-                    className="text-xl mb-2 animate-pulse text-center"
-                    style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.7)' }}
-                  >
+                  <div className="text-xl mb-2 animate-pulse text-center" style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.7)' }}>
                     {isCorrect ? '>>> ВСЁ ВЕРНО <<<' : '>>> ЕСТЬ ОШИБКИ <<<'}
                   </div>
 
