@@ -103,7 +103,7 @@ const defaultTasks: Task[] = [
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: 'Все любят йогурт',
+    correctAnswer: 'Йогурт любят все',
     audioUrl: '/tracks/signal.mp3'
   },
   {
