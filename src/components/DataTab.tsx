@@ -79,11 +79,11 @@ const defaultTasks: Task[] = [
     id: 4,
     title: 'ЛЕТОПИСЬ',
     description: 'Знание истории ключ ко всему.',
-    question: 'Какие вызовы бросает нам стремительно грядущее будущее? Что может послужить причиной раскола убежища?',
+    question: 'Введите цифровой хронологический код.',
     difficulty: 'MEDIUM',
     reward: 250,
     status: 'locked',
-    correctAnswer: 'Еда'
+    correctAnswer: '1019'
   },
   {
     id: 5,
@@ -103,7 +103,7 @@ const defaultTasks: Task[] = [
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: 'Студия',
+    correctAnswer: 'Все любят йогурт',
     audioUrl: '/tracks/signal.mp3'
   },
   {
