@@ -69,7 +69,7 @@ const defaultTasks: Task[] = [
     id: 3,
     title: 'КРАНИОЛОГИЯ',
     description: 'Помогите ученому в его лаборатории! Кому принадлежит загаданный череп?',
-    question: 'Кому принадлежит череп?',
+    question: 'Жив.с челюст. с зуб, с разв резц. и бивнеобр. клыки',
     difficulty: 'EASY',
     reward: 150,
     status: 'locked',
@@ -103,7 +103,7 @@ const defaultTasks: Task[] = [
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: 'Йогурт любят все',
+    correctAnswer: 'Йогурт любят все на свете',
     audioUrl: '/tracks/signal.mp3'
   },
   {
