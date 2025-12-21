@@ -18,14 +18,18 @@ interface Task {
     correctAnswer: string;
   }>;
   userAnswers?: string[];
-  audioUrl?: string; // ✅ audio for a task
+  audioUrl?: string;
 }
 
 interface DataTabProps {
   updateStats: (statUpdates: Partial<Stats>) => void;
+
+  // ✅ НОВОЕ: блокируем переключение вкладок в App
+  setUiLocked: (locked: boolean) => void;
 }
 
-const DATA_VERSION = '4.7'; // bumped: styled range for task 6 audio
+const DATA_VERSION = '4.8';
+const LAST_TASK_ID = 7; // ✅ “последнее задание” теперь по id, не по индексу
 
 const defaultTasks: Task[] = [
   {
@@ -63,9 +67,9 @@ const defaultTasks: Task[] = [
   },
   {
     id: 3,
-    title: 'КРАНЕОЛОГИЯ',
+    title: 'КРАНИОЛОГИЯ',
     description: 'Помогите ученому в его лаборатории! Кому принадлежит загаданный череп?',
-    question: 'Кому принадлежит череп?',
+    question: 'Жив.с челюст. с зуб, с разв резц. и бивнеобр. клыки',
     difficulty: 'EASY',
     reward: 150,
     status: 'locked',
@@ -73,17 +77,17 @@ const defaultTasks: Task[] = [
   },
   {
     id: 4,
-    title: 'БЕЗ ОТВЕТА',
-    description: 'Ученый нашел загадочное вещество, необходимое для спасения убежища.',
-    question: 'Какие вызовы бросает нам стремительно грядущее будущее? Что может послужить причиной раскола убежища?',
+    title: 'ЛЕТОПИСЬ',
+    description: 'Знание истории ключ ко всему.',
+    question: 'Введите цифровой хронологический код.',
     difficulty: 'MEDIUM',
     reward: 250,
     status: 'locked',
-    correctAnswer: 'Еда'
+    correctAnswer: '1019'
   },
   {
     id: 5,
-    title: 'Открытие столетия',
+    title: 'ОТКРЫТИЕ СТОЛЕТИЯ',
     description: 'Ученый нашел загадочное вещество, необходимое для спасение убежища.',
     question: 'Помогите ученому выяснить, что это.',
     difficulty: 'MEDIUM',
@@ -99,23 +103,23 @@ const defaultTasks: Task[] = [
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: '42',
-    audioUrl: '/tracks/signal.mp3' // файл в public/tracks/signal.mp3
+    correctAnswer: 'Йогурт любят все на свете',
+    audioUrl: '/tracks/signal.mp3'
   },
   {
     id: 7,
-    title: 'Выбор есть?',
+    title: 'ВЫБОР ЕСТЬ?',
     description:
       'Если вы дошли до этого этапа, значит вы готовы пользоваться силой демократии для выбора основного смотрителя.',
     question: 'Введите код для разблокировки',
     difficulty: 'HARD',
     reward: 500,
     status: 'locked',
-    correctAnswer: '1910'
+    correctAnswer: '42'
   }
 ];
 
-export function DataTab({ updateStats }: DataTabProps) {
+export function DataTab({ updateStats, setUiLocked }: DataTabProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [inputAnswer, setInputAnswer] = useState('');
   const [showResult, setShowResult] = useState(false);
@@ -123,10 +127,26 @@ export function DataTab({ updateStats }: DataTabProps) {
   const [surveyAnswers, setSurveyAnswers] = useState<string[]>([]);
   const [surveyResults, setSurveyResults] = useState<boolean[]>([]);
 
+  // ✅ финальное модальное окно (нельзя закрыть)
+  const [showElectionModal, setShowElectionModal] = useState(false);
+
   // ✅ audio state
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioVolume, setAudioVolume] = useState(75);
+
+  // ✅ анти-сбросы из таймеров
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearResetTimer = () => {
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => clearResetTimer();
+  }, []);
 
   const [tasks, setTasks] = useState<Task[]>(() => {
     const version = localStorage.getItem('pipboy-data-version');
@@ -158,6 +178,17 @@ export function DataTab({ updateStats }: DataTabProps) {
     }
   }, [selectedTask?.id]);
 
+  // ✅ ЛОЧИМ ВЕСЬ UI (навигацию по разделам) пока модалка активна
+  useEffect(() => {
+    if (showElectionModal) {
+      setUiLocked(true);
+    }
+    // cleanup на случай размонтирования или если ты когда-нибудь решишь закрывать модалку
+    return () => {
+      setUiLocked(false);
+    };
+  }, [showElectionModal, setUiLocked]);
+
   const toggleAudio = async () => {
     const el = audioRef.current;
     if (!el) return;
@@ -177,6 +208,8 @@ export function DataTab({ updateStats }: DataTabProps) {
 
   const handleSurveySubmit = () => {
     if (!selectedTask || selectedTask.type !== 'survey' || !selectedTask.questions) return;
+
+    clearResetTimer();
 
     const allAnswered =
       surveyAnswers.length === selectedTask.questions.length &&
@@ -211,7 +244,7 @@ export function DataTab({ updateStats }: DataTabProps) {
 
       setTasks(unlockedTasks);
 
-      setTimeout(() => {
+      resetTimerRef.current = setTimeout(() => {
         setShowResult(false);
         setSurveyAnswers([]);
         setSurveyResults([]);
@@ -224,7 +257,7 @@ export function DataTab({ updateStats }: DataTabProps) {
         )
       );
 
-      setTimeout(() => {
+      resetTimerRef.current = setTimeout(() => {
         setShowResult(false);
         setSurveyResults([]);
       }, 3000);
@@ -234,7 +267,8 @@ export function DataTab({ updateStats }: DataTabProps) {
   const handleSubmit = () => {
     if (!selectedTask || !inputAnswer.trim()) return;
 
-    // ✅ Case-insensitive compare
+    clearResetTimer();
+
     const normalizedInput = inputAnswer.trim().toLowerCase();
     const normalizedCorrect = (selectedTask.correctAnswer ?? '').trim().toLowerCase();
     const correct = normalizedInput === normalizedCorrect;
@@ -250,14 +284,24 @@ export function DataTab({ updateStats }: DataTabProps) {
       );
 
       const currentIndex = tasks.findIndex((t) => t.id === selectedTask.id);
+
+      // ✅ ПОСЛЕДНЕЕ ЗАДАНИЕ определяем по id
+      const isLastTask = selectedTask.id === LAST_TASK_ID;
+
       const unlockedTasks =
-        currentIndex < tasks.length - 1 && tasks[currentIndex + 1].status === 'locked'
+        !isLastTask && currentIndex < tasks.length - 1 && tasks[currentIndex + 1].status === 'locked'
           ? updatedTasks.map((task, idx) =>
               idx === currentIndex + 1 ? { ...task, status: 'available' as const } : task
             )
           : updatedTasks;
 
       setTasks(unlockedTasks);
+
+      // ✅ ПОСЛЕДНЕЕ: показываем незакрываемую модалку и лочим UI
+      if (isLastTask) {
+        setShowElectionModal(true);
+        return;
+      }
     } else {
       setTasks(
         tasks.map((task) =>
@@ -266,7 +310,7 @@ export function DataTab({ updateStats }: DataTabProps) {
       );
     }
 
-    setTimeout(() => {
+    resetTimerRef.current = setTimeout(() => {
       setShowResult(false);
       setInputAnswer('');
       if (correct) setSelectedTask(null);
@@ -299,7 +343,61 @@ export function DataTab({ updateStats }: DataTabProps) {
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
+      {/* ✅ НЕЗАКРЫВАЕМОЕ МОДАЛЬНОЕ ОКНО + блок ввода */}
+      {showElectionModal && (
+        <div className="absolute inset-0 z-50">
+          <div className="absolute inset-0 bg-black/95" />
+
+          <div
+            className="absolute inset-0 opacity-15 pointer-events-none"
+            style={{
+              backgroundImage: 'linear-gradient(to bottom, rgba(0,255,0,0.18) 1px, transparent 1px)',
+              backgroundSize: '100% 6px'
+            }}
+          />
+          <div
+            className="absolute inset-0 opacity-10 pointer-events-none"
+            style={{
+              backgroundImage: 'radial-gradient(rgba(0,255,0,0.12) 1px, transparent 1px)',
+              backgroundSize: '3px 3px'
+            }}
+          />
+
+          <div className="absolute inset-0 flex items-center justify-center p-6">
+            <div
+              className="w-full max-w-3xl border border-green-400/60 bg-black/80 p-6 md:p-8"
+              style={{
+                boxShadow: '0 0 40px rgba(0,255,0,0.25), inset 0 0 30px rgba(0,255,0,0.08)'
+              }}
+            >
+              <div className="text-xs opacity-70 mb-3 tracking-widest" style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}>
+                {'>'} SYSTEM ALERT
+              </div>
+
+              <div className="text-2xl md:text-3xl tracking-wider text-green-400 animate-pulse" style={{ textShadow: '0 0 16px rgba(0,255,0,0.75)' }}>
+                ВНИМАНИЕ
+              </div>
+
+              <div className="mt-4 border border-green-400/30 p-4">
+                <div className="text-lg md:text-xl leading-relaxed tracking-wide" style={{ textShadow: '0 0 10px rgba(0,255,0,0.35)' }}>
+                  ИНИЦИИРОВАН ЗАПУСК ГОЛОСОВАНИЯ
+                  <br />
+                  ПО СМЕНЕ СМОТРИТЕЛЯ
+                </div>
+              </div>
+
+              <div className="mt-6 text-xs opacity-70 tracking-widest">
+                {'>'} INPUT LOCKED <span className="inline-block ml-2 animate-pulse">▮</span>
+              </div>
+            </div>
+          </div>
+
+          {/* блокируем клики полностью */}
+          <div className="absolute inset-0" />
+        </div>
+      )}
+
       <div className="flex justify-between items-start mb-4">
         <div className="text-lg tracking-wider" style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.5)' }}>
           {'>'} ТЕРМИНАЛЬНЫЕ ЗАДАЧИ
@@ -317,18 +415,18 @@ export function DataTab({ updateStats }: DataTabProps) {
             <button
               key={task.id}
               onClick={() => {
+                clearResetTimer();
+
                 if (task.status === 'available') {
                   setSelectedTask(task);
                   setInputAnswer(task.userAnswer || '');
                   setShowResult(false);
 
-                  // init survey inputs
                   if (task.type === 'survey' && task.questions) {
                     setSurveyAnswers(task.userAnswers || new Array(task.questions.length).fill(''));
                     setSurveyResults([]);
                   }
 
-                  // stop audio when opening a task (safe)
                   setIsAudioPlaying(false);
                   if (audioRef.current) {
                     audioRef.current.pause();
@@ -376,17 +474,11 @@ export function DataTab({ updateStats }: DataTabProps) {
                 <div className="text-sm leading-relaxed">{selectedTask.question}</div>
               </div>
 
-              {/* ✅ AUDIO PLAYER if audioUrl exists (task 6) */}
               {selectedTask.audioUrl && (
                 <div className="border border-green-400/30 p-3">
                   <div className="text-xs opacity-70 mb-2">АУДИО:</div>
 
-                  <audio
-                    ref={audioRef}
-                    src={selectedTask.audioUrl}
-                    onEnded={() => setIsAudioPlaying(false)}
-                    preload="metadata"
-                  />
+                  <audio ref={audioRef} src={selectedTask.audioUrl} onEnded={() => setIsAudioPlaying(false)} preload="metadata" />
 
                   <div className="flex items-center gap-3">
                     <button
@@ -399,8 +491,6 @@ export function DataTab({ updateStats }: DataTabProps) {
 
                     <div className="flex items-center gap-2 flex-1">
                       <Volume2 size={18} className="opacity-80" />
-
-                      {/* ✅ Radio-like slider */}
                       <input
                         type="range"
                         min={0}
@@ -410,7 +500,6 @@ export function DataTab({ updateStats }: DataTabProps) {
                         className="radio-range"
                         aria-label="Volume"
                       />
-
                       <div className="text-xs opacity-70 w-10 text-right">{audioVolume}%</div>
                     </div>
                   </div>
@@ -426,10 +515,7 @@ export function DataTab({ updateStats }: DataTabProps) {
                   }`}
                   style={{ boxShadow: isCorrect ? '0 0 20px rgba(0, 255, 0, 0.3)' : 'none' }}
                 >
-                  <div
-                    className="text-xl mb-2 animate-pulse text-center"
-                    style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.7)' }}
-                  >
+                  <div className="text-xl mb-2 animate-pulse text-center" style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.7)' }}>
                     {isCorrect ? '>>> ВСЁ ВЕРНО <<<' : '>>> ЕСТЬ ОШИБКИ <<<'}
                   </div>
 
