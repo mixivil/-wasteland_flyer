@@ -1,9 +1,12 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
-const MAP_SRC = '/maps/frame-44.svg'; // SVG лежит в public/maps
+const MAP_SRC = '/maps/frame-44.svg';
 const FINAL_NODE_ID = 'p11';
-const FINAL_SECRET_CODE = 'VAULT-77';
+const FINAL_SECRET_CODE = '1910';
+const STORAGE_KEY = 'capital-wasteland-map-state-v2';
+const GAME_DURATION_SEC = 7 * 60;
+const MAX_CODE_LENGTH = 40;
 
 type Comment = {
   id: string;
@@ -16,14 +19,27 @@ type Comment = {
 type Location = {
   id: string;
   name: string;
-  xPct: number; // 0..100
-  yPct: number; // 0..100
+  xPct: number;
+  yPct: number;
   question: string;
   description: string;
   comments: Comment[];
 };
 
-// ✅ 11 точек — как на твоей картинке (в % от контейнера карты)
+type Dir = 'up' | 'down' | 'left' | 'right';
+type NodeState = 'locked' | 'unlocked';
+
+type PersistedGameState = {
+  stateById: Record<string, NodeState>;
+  solvedById: Record<string, boolean>;
+  selectedId: string | null;
+  answerByLoc: Record<string, string>;
+  feedbackByLoc: Record<string, string>;
+  endAtMs: number | null;
+  isStarted: boolean;
+  isGameOver: boolean;
+};
+
 const LOCATIONS: Location[] = [
   {
     id: 'p1',
@@ -130,7 +146,6 @@ const LOCATIONS: Location[] = [
   }
 ];
 
-// ✅ правильные комбинации — ДЛИНА 6
 const REQUIRED: Record<string, string> = {
   p1: '↑↓↓↑→←',
   p2: '→→↓↑←→',
@@ -142,11 +157,31 @@ const REQUIRED: Record<string, string> = {
   p8: '→↓→←↑↓',
   p9: '↑←↑→↓→',
   p10: '↓↓←↑→←',
-  p11: '→→↑←↓↑'
+  p11: '→→↑←↓↑→→↑←↓←↓↑↓↑↑↑'
 };
 
-// ✅ порядок разблокировки
 const UNLOCK_ORDER: string[] = ['p1', 'p5', 'p9', 'p10', 'p2', 'p3', 'p6', 'p7', 'p8', 'p4', 'p11'];
+
+const ARROW_TO_SYMBOL: Record<string, string> = {
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→'
+};
+
+const MASK_INDICES: Record<string, number[]> = {
+  p1: [],
+  p2: [],
+  p3: [1, 3, 5],
+  p4: [],
+  p5: [],
+  p6: [],
+  p7: [],
+  p8: [],
+  p9: [],
+  p10: [1, 3, 5],
+  p11: []
+};
 
 function VaultDwellerIcon() {
   return (
@@ -171,10 +206,6 @@ function toneBadge(tone?: Comment['tone']) {
   if (tone === 'bad') return 'BAD';
   return 'INFO';
 }
-
-// ---------- keyboard nav helpers ----------
-type Dir = 'up' | 'down' | 'left' | 'right';
-type NodeState = 'locked' | 'unlocked';
 
 function getNextLocationId(current: Location, dir: Dir, all: Location[]) {
   const cx = current.xPct;
@@ -210,28 +241,6 @@ function getNextLocationId(current: Location, dir: Dir, all: Location[]) {
   return best.id;
 }
 
-const ARROW_TO_SYMBOL: Record<string, string> = {
-  ArrowUp: '↑',
-  ArrowDown: '↓',
-  ArrowLeft: '←',
-  ArrowRight: '→'
-};
-
-// ✅ какие части кода показывать как неизвестные (0..5) — "*" вместо "?"
-const MASK_INDICES: Record<string, number[]> = {
-  p1: [],
-  p2: [2],
-  p3: [0, 2, 4],
-  p4: [0, 1, 2, 3, 4, 5],
-  p5: [],
-  p6: [1, 3, 5],
-  p7: [1, 3, 5],
-  p8: [1, 3, 5],
-  p9: [1, 3, 5],
-  p10: [1, 3, 5],
-  p11: [0, 1, 2, 3, 4, 5]
-};
-
 function maskCode(locId: string, code: string) {
   const hide = new Set(MASK_INDICES[locId] ?? []);
   return code
@@ -262,13 +271,64 @@ export function MapTab() {
     return map;
   };
 
-  const [stateById, setStateById] = useState<Record<string, NodeState>>(buildInitialStateById);
-  const [solvedById, setSolvedById] = useState<Record<string, boolean>>(buildInitialSolved);
-  const [selectedId, setSelectedId] = useState<string | null>(initialUnlockedId);
-  const [answerByLoc, setAnswerByLoc] = useState<Record<string, string>>({});
-  const [feedbackByLoc, setFeedbackByLoc] = useState<Record<string, string>>({});
-  const [timeLeftSec, setTimeLeftSec] = useState(7 * 60);
-  const [isGameOver, setIsGameOver] = useState(false);
+  const buildFreshState = (): PersistedGameState => ({
+    stateById: buildInitialStateById(),
+    solvedById: buildInitialSolved(),
+    selectedId: initialUnlockedId,
+    answerByLoc: {},
+    feedbackByLoc: {},
+    endAtMs: null,
+    isStarted: false,
+    isGameOver: false
+  });
+
+  const readStoredState = (): PersistedGameState => {
+    if (typeof window === 'undefined') return buildFreshState();
+
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return buildFreshState();
+
+      const parsed = JSON.parse(raw) as Partial<PersistedGameState>;
+      const fallback = buildFreshState();
+
+      const endAtMs =
+        typeof parsed.endAtMs === 'number' && Number.isFinite(parsed.endAtMs)
+          ? parsed.endAtMs
+          : null;
+
+      const isStarted = Boolean(parsed.isStarted);
+      const isExpired = isStarted && endAtMs !== null ? Date.now() >= endAtMs : false;
+
+      return {
+        stateById: parsed.stateById ?? fallback.stateById,
+        solvedById: parsed.solvedById ?? fallback.solvedById,
+        selectedId: parsed.selectedId ?? fallback.selectedId,
+        answerByLoc: parsed.answerByLoc ?? fallback.answerByLoc,
+        feedbackByLoc: parsed.feedbackByLoc ?? fallback.feedbackByLoc,
+        endAtMs,
+        isStarted,
+        isGameOver: Boolean(parsed.isGameOver) || isExpired
+      };
+    } catch {
+      return buildFreshState();
+    }
+  };
+
+  const initialPersisted = readStoredState();
+
+  const [stateById, setStateById] = useState<Record<string, NodeState>>(initialPersisted.stateById);
+  const [solvedById, setSolvedById] = useState<Record<string, boolean>>(initialPersisted.solvedById);
+  const [selectedId, setSelectedId] = useState<string | null>(initialPersisted.selectedId);
+  const [answerByLoc, setAnswerByLoc] = useState<Record<string, string>>(initialPersisted.answerByLoc);
+  const [feedbackByLoc, setFeedbackByLoc] = useState<Record<string, string>>(initialPersisted.feedbackByLoc);
+  const [endAtMs, setEndAtMs] = useState<number | null>(initialPersisted.endAtMs);
+  const [isStarted, setIsStarted] = useState<boolean>(initialPersisted.isStarted);
+  const [timeLeftSec, setTimeLeftSec] = useState<number>(() => {
+    if (!initialPersisted.isStarted || initialPersisted.endAtMs === null) return GAME_DURATION_SEC;
+    return Math.max(0, Math.ceil((initialPersisted.endAtMs - Date.now()) / 1000));
+  });
+  const [isGameOver, setIsGameOver] = useState<boolean>(initialPersisted.isGameOver);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const tickIntervalRef = useRef<number | null>(null);
@@ -288,6 +348,21 @@ export function MapTab() {
     : '';
 
   const currentAnswer = selected ? (answerByLoc[selected.id] ?? '') : '';
+
+  useEffect(() => {
+    const safeState: PersistedGameState = {
+      stateById,
+      solvedById,
+      selectedId,
+      answerByLoc,
+      feedbackByLoc,
+      endAtMs,
+      isStarted,
+      isGameOver
+    };
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(safeState));
+  }, [stateById, solvedById, selectedId, answerByLoc, feedbackByLoc, endAtMs, isStarted, isGameOver]);
 
   const playSingleTick = () => {
     try {
@@ -319,7 +394,7 @@ export function MapTab() {
 
       oscillator.start(ctx.currentTime);
       oscillator.stop(ctx.currentTime + 0.06);
-    } catch (e) {}
+    } catch {}
   };
 
   const startTicking = () => {
@@ -339,35 +414,56 @@ export function MapTab() {
     }
   };
 
-  const resetGame = () => {
+  const handleStart = () => {
+    if (isStarted || isGameOver) return;
+
+    const newEndAtMs = Date.now() + GAME_DURATION_SEC * 1000;
+    setIsStarted(true);
+    setEndAtMs(newEndAtMs);
+    setTimeLeftSec(GAME_DURATION_SEC);
     setIsGameOver(false);
-    setTimeLeftSec(7 * 60);
-    setStateById(buildInitialStateById());
-    setSolvedById(buildInitialSolved());
-    setSelectedId(initialUnlockedId);
-    setAnswerByLoc({});
-    setFeedbackByLoc({});
+  };
+
+  const resetGame = () => {
+    const fresh = buildFreshState();
+
+    setStateById(fresh.stateById);
+    setSolvedById(fresh.solvedById);
+    setSelectedId(fresh.selectedId);
+    setAnswerByLoc(fresh.answerByLoc);
+    setFeedbackByLoc(fresh.feedbackByLoc);
+    setEndAtMs(fresh.endAtMs);
+    setIsStarted(fresh.isStarted);
+    setIsGameOver(fresh.isGameOver);
+    setTimeLeftSec(GAME_DURATION_SEC);
+
+    window.localStorage.removeItem(STORAGE_KEY);
   };
 
   useEffect(() => {
+    if (!isStarted || endAtMs === null) {
+      setTimeLeftSec(GAME_DURATION_SEC);
+      return;
+    }
+
+    const updateLeft = () => {
+      const left = Math.max(0, Math.ceil((endAtMs - Date.now()) / 1000));
+      setTimeLeftSec(left);
+
+      if (left <= 0) {
+        setIsGameOver(true);
+      }
+    };
+
+    updateLeft();
     if (isGameOver) return;
 
-    const t = window.setInterval(() => {
-      setTimeLeftSec((s) => {
-        if (s <= 1) {
-          window.clearInterval(t);
-          setIsGameOver(true);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-
+    const t = window.setInterval(updateLeft, 1000);
     return () => window.clearInterval(t);
-  }, [isGameOver]);
+  }, [endAtMs, isStarted, isGameOver]);
 
   useEffect(() => {
-    if (isGameOver) {
+    if (!isStarted || isGameOver) {
       stopTicking();
       return;
     }
@@ -377,7 +473,7 @@ export function MapTab() {
     return () => {
       stopTicking();
     };
-  }, [isGameOver]);
+  }, [isStarted, isGameOver]);
 
   useEffect(() => {
     return () => {
@@ -410,7 +506,7 @@ export function MapTab() {
   };
 
   const handleSubmit = () => {
-    if (isGameOver) return;
+    if (!isStarted || isGameOver) return;
     if (!selected) return;
     if (!isSelectedUnlocked) return;
 
@@ -463,15 +559,24 @@ export function MapTab() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isGameOver) return;
+      if (!isStarted || isGameOver) return;
 
       const key = e.key;
-      const lower = key.length === 1 ? key.toLowerCase() : key;
-      const isWasd = lower === 'w' || lower === 'a' || lower === 's' || lower === 'd';
+      const code = e.code;
+      const isMoveKey = code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD';
 
-      if (isWasd && selected) {
+      if (isMoveKey && selected) {
         e.preventDefault();
-        const dir: Dir = lower === 'w' ? 'up' : lower === 's' ? 'down' : lower === 'a' ? 'left' : 'right';
+
+        const dir: Dir =
+          code === 'KeyW'
+            ? 'up'
+            : code === 'KeyS'
+              ? 'down'
+              : code === 'KeyA'
+                ? 'left'
+                : 'right';
+
         const nextId = getNextUnlockedId(selected, dir);
         if (nextId) setSelectedId(nextId);
         return;
@@ -483,7 +588,7 @@ export function MapTab() {
 
         setAnswerByLoc((p) => {
           const cur = p[selected.id] ?? '';
-          if (cur.length >= 6) return p;
+          if (cur.length >= MAX_CODE_LENGTH) return p;
           return { ...p, [selected.id]: cur + ARROW_TO_SYMBOL[key] };
         });
 
@@ -507,13 +612,12 @@ export function MapTab() {
         e.preventDefault();
         if (isFinalNodeSolved) return;
         handleSubmit();
-        return;
       }
     };
 
     window.addEventListener('keydown', onKeyDown, { passive: false });
     return () => window.removeEventListener('keydown', onKeyDown as any);
-  }, [selected, isSelectedUnlocked, stateById, answerByLoc, isGameOver, isFinalNodeSolved]);
+  }, [selected, isSelectedUnlocked, stateById, answerByLoc, isGameOver, isFinalNodeSolved, isStarted]);
 
   return (
     <div className="grid grid-cols-3 gap-4 h-full">
@@ -539,7 +643,6 @@ export function MapTab() {
                 backdropFilter: 'blur(3px)'
               }}
             />
-
             <div
               className="relative border border-green-400/40 bg-black p-8"
               style={{
@@ -575,7 +678,7 @@ export function MapTab() {
               {'>'} CAPITAL WASTELAND
             </div>
             <div className="mt-1 text-[11px] opacity-70">
-              Controls: <span className="opacity-90">WASD</span> move • <span className="opacity-90">Arrow keys</span> enter code •{' '}
+              Controls: <span className="opacity-90">WASD / ЦФЫВ</span> move • <span className="opacity-90">Arrow keys</span> enter code •{' '}
               <span className="opacity-90">Backspace</span> delete • <span className="opacity-90">Enter</span> submit
             </div>
           </div>
@@ -587,7 +690,8 @@ export function MapTab() {
               lineHeight: '28px',
               letterSpacing: '0.08em',
               color: 'rgba(190,255,190,0.98)',
-              textShadow: '0 0 18px rgba(0,255,0,0.45)'
+              textShadow: '0 0 18px rgba(0,255,0,0.45)',
+              opacity: isStarted ? 1 : 0.55
             }}
             title="Time left"
           >
@@ -596,93 +700,120 @@ export function MapTab() {
         </div>
 
         <div className="relative w-full aspect-square border border-green-400/20 bg-black overflow-hidden">
-          <img
-            src={MAP_SRC}
-            alt="Wasteland Map"
-            className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
-            style={{ filter: 'drop-shadow(0 0 12px rgba(0,255,0,0.25))' }}
-          />
-
-          <div className="absolute inset-0">
-            {LOCATIONS.map((loc) => {
-              const s: NodeState = stateById[loc.id] ?? 'locked';
-              const isActive = loc.id === selectedId;
-              const isUnlocked = s === 'unlocked';
-              const isSolved = !!solvedById[loc.id];
-
-              const border = isUnlocked ? '2px solid rgba(180,255,180,0.9)' : '2px solid rgba(255,255,255,0.85)';
-              const bg = isUnlocked
-                ? 'radial-gradient(circle, rgba(0,255,0,1) 0%, rgba(0,255,0,0.8) 40%, rgba(0,120,0,0.4) 100%)'
-                : 'radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.10) 45%, rgba(0,0,0,0) 100%)';
-
-              return (
-                <button
-                  key={loc.id}
-                  type="button"
-                  onClick={() => selectLocation(loc.id)}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition"
-                  style={{
-                    left: `${loc.xPct}%`,
-                    top: `${loc.yPct}%`,
-                    width: isActive ? 22 : 20,
-                    height: isActive ? 22 : 20,
-                    cursor: isUnlocked && !isGameOver ? 'pointer' : 'not-allowed',
-                    opacity: isUnlocked ? 1 : 0.65
-                  }}
-                  aria-label={`Open location ${loc.name}`}
-                  title={isUnlocked ? `${loc.name}${isSolved ? ' (SOLVED)' : ''}` : 'LOCKED'}
-                  disabled={isGameOver}
+          {!isStarted && !isGameOver ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="border border-green-400/30 bg-black/80 px-8 py-6 text-center">
+                <div
+                  className="text-xl tracking-wider mb-3"
+                  style={{ textShadow: '0 0 12px rgba(0,255,0,0.45)' }}
                 >
-                  {isUnlocked && (
-                    <span
-                      className="absolute left-1/2 top-1/2 rounded-full pointer-events-none"
-                      style={{
-                        width: 30,
-                        height: 30,
-                        border: '1px solid rgba(0,255,0,0.7)',
-                        animation: 'pipPulse 1.8s ease-out infinite'
-                      }}
-                    />
-                  )}
+                  {'>'} READY TO START
+                </div>
 
-                  <span
-                    className="absolute inset-0 rounded-full"
-                    style={{
-                      background: bg,
-                      border,
-                      animation: isUnlocked ? 'pipCoreGlow 2s ease-in-out infinite' : undefined,
-                      boxShadow: isUnlocked ? `0 0 8px rgba(0,255,0,0.7), 0 0 20px rgba(0,255,0,0.4)` : 'none'
-                    }}
-                  />
+                <div className="text-xs opacity-70 mb-5">
+                  Press START to reveal the map and begin countdown.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleStart}
+                  className="text-xs border border-green-400/30 px-5 py-2 hover:opacity-100 opacity-80"
+                >
+                  START
                 </button>
-              );
-            })}
-
-            <div
-              className="absolute -translate-x-1/2 -translate-y-full pointer-events-none"
-              style={{
-                left: `${dwellerPos.xPct}%`,
-                top: `${dwellerPos.yPct}%`,
-                transition: 'left 450ms ease, top 450ms ease',
-                filter: 'drop-shadow(0 0 10px rgba(0,255,0,0.45))'
-              }}
-            >
-              <VaultDwellerIcon />
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <img
+                src={MAP_SRC}
+                alt="Wasteland Map"
+                className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none"
+                style={{ filter: 'drop-shadow(0 0 12px rgba(0,255,0,0.25))' }}
+              />
 
-          <div
-            className="absolute inset-0 pointer-events-none opacity-10"
-            style={{
-              backgroundImage: 'linear-gradient(to bottom, rgba(0,255,0,0.12) 1px, transparent 1px)',
-              backgroundSize: '100% 6px'
-            }}
-          />
+              <div className="absolute inset-0">
+                {LOCATIONS.map((loc) => {
+                  const s: NodeState = stateById[loc.id] ?? 'locked';
+                  const isActive = loc.id === selectedId;
+                  const isUnlocked = s === 'unlocked';
+                  const isSolved = !!solvedById[loc.id];
 
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 text-xs opacity-50">N</div>
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs opacity-50">S</div>
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs opacity-50">W</div>
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50">E</div>
+                  const border = isUnlocked ? '2px solid rgba(180,255,180,0.9)' : '2px solid rgba(255,255,255,0.85)';
+                  const bg = isUnlocked
+                    ? 'radial-gradient(circle, rgba(0,255,0,1) 0%, rgba(0,255,0,0.8) 40%, rgba(0,120,0,0.4) 100%)'
+                    : 'radial-gradient(circle, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.10) 45%, rgba(0,0,0,0) 100%)';
+
+                  return (
+                    <button
+                      key={loc.id}
+                      type="button"
+                      onClick={() => selectLocation(loc.id)}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full transition"
+                      style={{
+                        left: `${loc.xPct}%`,
+                        top: `${loc.yPct}%`,
+                        width: isActive ? 22 : 20,
+                        height: isActive ? 22 : 20,
+                        cursor: isUnlocked && !isGameOver ? 'pointer' : 'not-allowed',
+                        opacity: isUnlocked ? 1 : 0.65
+                      }}
+                      aria-label={`Open location ${loc.name}`}
+                      title={isUnlocked ? `${loc.name}${isSolved ? ' (SOLVED)' : ''}` : 'LOCKED'}
+                      disabled={isGameOver}
+                    >
+                      {isUnlocked && (
+                        <span
+                          className="absolute left-1/2 top-1/2 rounded-full pointer-events-none"
+                          style={{
+                            width: 30,
+                            height: 30,
+                            border: '1px solid rgba(0,255,0,0.7)',
+                            animation: 'pipPulse 1.8s ease-out infinite'
+                          }}
+                        />
+                      )}
+
+                      <span
+                        className="absolute inset-0 rounded-full"
+                        style={{
+                          background: bg,
+                          border,
+                          animation: isUnlocked ? 'pipCoreGlow 2s ease-in-out infinite' : undefined,
+                          boxShadow: isUnlocked ? '0 0 8px rgba(0,255,0,0.7), 0 0 20px rgba(0,255,0,0.4)' : 'none'
+                        }}
+                      />
+                    </button>
+                  );
+                })}
+
+                <div
+                  className="absolute -translate-x-1/2 -translate-y-full pointer-events-none"
+                  style={{
+                    left: `${dwellerPos.xPct}%`,
+                    top: `${dwellerPos.yPct}%`,
+                    transition: 'left 450ms ease, top 450ms ease',
+                    filter: 'drop-shadow(0 0 10px rgba(0,255,0,0.45))'
+                  }}
+                >
+                  <VaultDwellerIcon />
+                </div>
+              </div>
+
+              <div
+                className="absolute inset-0 pointer-events-none opacity-10"
+                style={{
+                  backgroundImage: 'linear-gradient(to bottom, rgba(0,255,0,0.12) 1px, transparent 1px)',
+                  backgroundSize: '100% 6px'
+                }}
+              />
+
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 text-xs opacity-50">N</div>
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs opacity-50">S</div>
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs opacity-50">W</div>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs opacity-50">E</div>
+            </>
+          )}
         </div>
       </div>
 
@@ -743,17 +874,21 @@ export function MapTab() {
                   fontSize: 28,
                   lineHeight: '28px',
                   letterSpacing: '0.22em',
-                  opacity: isFinalNodeSolved ? 0.35 : isSelectedUnlocked ? 1 : 0.35
+                  opacity: !isStarted || isFinalNodeSolved ? 0.35 : isSelectedUnlocked ? 1 : 0.35
                 }}
                 title={
-                  isFinalNodeSolved
-                    ? 'Final code unlocked'
-                    : isSelectedUnlocked
-                      ? 'Use arrow keys to input code'
-                      : 'Locked'
+                  !isStarted
+                    ? 'Press START first'
+                    : isFinalNodeSolved
+                      ? 'Final code unlocked'
+                      : isSelectedUnlocked
+                        ? 'Use arrow keys to input code'
+                        : 'Locked'
                 }
               >
-                {isFinalNodeSolved ? (
+                {!isStarted ? (
+                  <span style={{ opacity: 0.6 }}>PRESS START…</span>
+                ) : isFinalNodeSolved ? (
                   <span style={{ opacity: 0.6 }}>FINAL CODE UNLOCKED</span>
                 ) : currentAnswer.length ? (
                   <span>{currentAnswer}</span>
@@ -764,21 +899,23 @@ export function MapTab() {
 
               <div className="mt-2 flex items-center justify-between gap-2">
                 <div className="text-[10px] opacity-50">
-                  {isFinalNodeSolved
-                    ? 'Sequence complete.'
-                    : isSelectedUnlocked
-                      ? 'Arrow keys input code (max 6).'
-                      : 'Solve previous nodes.'}
+                  {!isStarted
+                    ? 'Press START to begin.'
+                    : isFinalNodeSolved
+                      ? 'Sequence complete.'
+                      : isSelectedUnlocked
+                        ? `Arrow keys input code (max ${MAX_CODE_LENGTH}).`
+                        : 'Solve previous nodes.'}
                 </div>
 
                 <button
                   type="button"
                   className="text-xs border border-green-400/30 px-3 py-1 opacity-80 hover:opacity-100"
-                  disabled={!isSelectedUnlocked || isGameOver || isFinalNodeSolved}
+                  disabled={!isStarted || !isSelectedUnlocked || isGameOver || isFinalNodeSolved}
                   onClick={handleSubmit}
                   style={{
-                    opacity: isSelectedUnlocked && !isGameOver && !isFinalNodeSolved ? undefined : 0.35,
-                    cursor: isSelectedUnlocked && !isGameOver && !isFinalNodeSolved ? 'pointer' : 'not-allowed'
+                    opacity: isStarted && isSelectedUnlocked && !isGameOver && !isFinalNodeSolved ? undefined : 0.35,
+                    cursor: isStarted && isSelectedUnlocked && !isGameOver && !isFinalNodeSolved ? 'pointer' : 'not-allowed'
                   }}
                 >
                   SUBMIT

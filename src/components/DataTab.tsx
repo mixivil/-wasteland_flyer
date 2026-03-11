@@ -63,7 +63,7 @@ const defaultTasks: Task[] = [
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: 'VAULT-77'
+    correctAnswer: '1910'
   },
   {
     id: 3,
@@ -87,13 +87,13 @@ const defaultTasks: Task[] = [
   },
   {
     id: 5,
-    title: 'ОТКРЫТИЕ СТОЛЕТИЯ',
-    description: 'Ученый нашел загадочное вещество, необходимое для спасение убежища.',
-    question: 'Помогите ученому выяснить, что это.',
+    title: 'КОД ОРУЖЕЙНОЙ',
+    description: 'Получите доступ к оружейной комнате.',
+    question: 'Задача: найти код в закрытом оружейном помещении путем взлома.',
     difficulty: 'MEDIUM',
     reward: 350,
     status: 'locked',
-    correctAnswer: 'Йогурт'
+    correctAnswer: 'фокстрот юниформ чарли кило'
   },
   {
     id: 6,

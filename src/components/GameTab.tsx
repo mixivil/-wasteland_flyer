@@ -389,7 +389,7 @@ export function GameTab() {
                       {'>>>'} ACHIEVEMENT UNLOCKED {'<<<'}
                     </div>
                     <div className="text-xs opacity-70 mt-2">
-                      You&apos;ve successfully navigated through the wasteland. Secret code revealed:
+                      You&apos;ve successfully navigated through the wasteland.
                     </div>
                   </div>
 
@@ -402,14 +402,14 @@ export function GameTab() {
                 </div>
 
                 <div className="mt-4 border border-green-400/30 p-4 bg-green-400/5">
-                  <div className="text-xs opacity-60 mb-2">SECRET CODE:</div>
+                  <div className="text-xs opacity-60 mb-2">Ачивка</div>
                   <div
                     className="text-4xl tracking-widest font-bold"
                     style={{ textShadow: '0 0 15px rgba(0, 255, 0, 0.8)' }}
                   >
-                    кода больше нет
+                    Снайпер
                   </div>
-                  <div className="text-xs opacity-60 mt-3">This code may be useful for terminal tasks...</div>
+                  <div className="text-xs opacity-60 mt-3">Поздравляем! Ты заработал бессмысленную ачивку!</div>
                 </div>
               </>
             )}
