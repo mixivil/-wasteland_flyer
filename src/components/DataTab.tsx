@@ -56,14 +56,14 @@ const defaultTasks: Task[] = [
   },
   {
     id: 2,
-    title: 'WASTELANDFLYER',
+    title: 'MAP',
     description:
-      '11.12 - Перейдите в меню с игрой и пройдите её до конца. Текущий рекорд: 150. В конце должен быть пароль.\n15.08 - Мой максимум: 13\n11.09 - Мой результат: 9',
-    question: 'Помогите птичке долететь до конца',
+      'tut opisanie budet',
+    question: 'нужен код',
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
-    correctAnswer: '1910'
+    correctAnswer: 'VAULT-77'
   },
   {
     id: 3,
