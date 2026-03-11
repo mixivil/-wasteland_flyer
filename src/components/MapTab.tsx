@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 const MAP_SRC = '/maps/frame-44.svg'; // SVG лежит в public/maps
@@ -262,21 +262,16 @@ export function MapTab() {
     return map;
   };
 
-  // ✅ locked/unlocked: изначально unlocked только одна
   const [stateById, setStateById] = useState<Record<string, NodeState>>(buildInitialStateById);
-
-  // ✅ отмечаем solved отдельно (но не блокируем)
   const [solvedById, setSolvedById] = useState<Record<string, boolean>>(buildInitialSolved);
-
   const [selectedId, setSelectedId] = useState<string | null>(initialUnlockedId);
-
-  // ✅ ответы (пустые)
   const [answerByLoc, setAnswerByLoc] = useState<Record<string, string>>({});
   const [feedbackByLoc, setFeedbackByLoc] = useState<Record<string, string>>({});
-
-  // ✅ таймер 7 минут + game over
   const [timeLeftSec, setTimeLeftSec] = useState(7 * 60);
   const [isGameOver, setIsGameOver] = useState(false);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const tickIntervalRef = useRef<number | null>(null);
 
   const selected = useMemo(() => LOCATIONS.find((l) => l.id === selectedId) ?? null, [selectedId]);
   const dwellerPos = selected ?? LOCATIONS[0];
@@ -294,6 +289,56 @@ export function MapTab() {
 
   const currentAnswer = selected ? (answerByLoc[selected.id] ?? '') : '';
 
+  const playSingleTick = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioCtx();
+      }
+
+      const ctx = audioCtxRef.current;
+
+      if (ctx.state === 'suspended') {
+        void ctx.resume();
+      }
+
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      oscillator.type = 'square';
+      oscillator.frequency.value = 1200;
+
+      gainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.02, ctx.currentTime + 0.003);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.06);
+    } catch (e) {}
+  };
+
+  const startTicking = () => {
+    if (tickIntervalRef.current !== null) return;
+
+    playSingleTick();
+
+    tickIntervalRef.current = window.setInterval(() => {
+      playSingleTick();
+    }, 1000);
+  };
+
+  const stopTicking = () => {
+    if (tickIntervalRef.current !== null) {
+      window.clearInterval(tickIntervalRef.current);
+      tickIntervalRef.current = null;
+    }
+  };
+
   const resetGame = () => {
     setIsGameOver(false);
     setTimeLeftSec(7 * 60);
@@ -304,7 +349,6 @@ export function MapTab() {
     setFeedbackByLoc({});
   };
 
-  // ✅ таймер тикает
   useEffect(() => {
     if (isGameOver) return;
 
@@ -321,6 +365,30 @@ export function MapTab() {
 
     return () => window.clearInterval(t);
   }, [isGameOver]);
+
+  useEffect(() => {
+    if (isGameOver) {
+      stopTicking();
+      return;
+    }
+
+    startTicking();
+
+    return () => {
+      stopTicking();
+    };
+  }, [isGameOver]);
+
+  useEffect(() => {
+    return () => {
+      stopTicking();
+
+      if (audioCtxRef.current) {
+        void audioCtxRef.current.close();
+        audioCtxRef.current = null;
+      }
+    };
+  }, []);
 
   const selectLocation = (id: string) => {
     if (isGameOver) return;
@@ -378,7 +446,6 @@ export function MapTab() {
     setFeedbackByLoc((p) => ({ ...p, [selected.id]: 'WRONG SEQUENCE' }));
   };
 
-  // ✅ WASD перемещают по карте (между unlocked)
   const getNextUnlockedId = (from: Location, dir: Dir) => {
     let cur = from;
     for (let i = 0; i < LOCATIONS.length; i++) {
@@ -394,14 +461,11 @@ export function MapTab() {
     return null;
   };
 
-  // ✅ глобальные клавиши
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isGameOver) return;
 
       const key = e.key;
-
-      // WASD navigation
       const lower = key.length === 1 ? key.toLowerCase() : key;
       const isWasd = lower === 'w' || lower === 'a' || lower === 's' || lower === 'd';
 
@@ -413,7 +477,6 @@ export function MapTab() {
         return;
       }
 
-      // Arrow input — only when current node unlocked, and max len 6
       if (key in ARROW_TO_SYMBOL) {
         e.preventDefault();
         if (!selected || !isSelectedUnlocked || isFinalNodeSolved) return;
@@ -428,7 +491,6 @@ export function MapTab() {
         return;
       }
 
-      // Editing
       if (key === 'Backspace') {
         e.preventDefault();
         if (!selected || !isSelectedUnlocked || isFinalNodeSolved) return;
@@ -467,7 +529,6 @@ export function MapTab() {
         }
       `}</style>
 
-      {/* ✅ Game Over modal: Portal в document.body, поверх всего + затемнение */}
       {isGameOver &&
         createPortal(
           <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 999999 }} role="dialog" aria-modal="true">
@@ -507,7 +568,6 @@ export function MapTab() {
           document.body
         )}
 
-      {/* Map Display */}
       <div className="col-span-2 border border-green-400/30 p-4 relative">
         <div className="flex items-end justify-between gap-3 mb-3">
           <div>
@@ -626,7 +686,6 @@ export function MapTab() {
         </div>
       </div>
 
-      {/* Info Panel */}
       <div className="border border-green-400/30 p-4 flex flex-col">
         <div className="text-lg mb-4 tracking-wider" style={{ textShadow: '0 0 10px rgba(0, 255, 0, 0.5)' }}>
           {'>'} LOCATION

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Bird, Trophy, RotateCcw, Zap } from 'lucide-react';
 
 interface Pipe {
@@ -407,7 +407,7 @@ export function GameTab() {
                     className="text-4xl tracking-widest font-bold"
                     style={{ textShadow: '0 0 15px rgba(0, 255, 0, 0.8)' }}
                   >
-                    1910
+                    кода больше нет
                   </div>
                   <div className="text-xs opacity-60 mt-3">This code may be useful for terminal tasks...</div>
                 </div>
