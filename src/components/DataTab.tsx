@@ -56,10 +56,10 @@ const defaultTasks: Task[] = [
   },
   {
     id: 2,
-    title: 'MAP',
+    title: 'ВЗЛОМ',
     description:
-      'tut opisanie budet',
-    question: 'нужен код',
+      'Взломайте интерфейс Pip-boy на интерактивной карте. Если части данных не хватает, ищите на месте',
+    question: 'Отгадайте код',
     difficulty: 'MEDIUM',
     reward: 300,
     status: 'locked',
