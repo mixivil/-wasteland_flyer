@@ -29,19 +29,17 @@ const defaultStats: Stats = {
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("TASKS");
   const [isLoading, setIsLoading] = useState(false);
+  const [uiLocked, setUiLocked] = useState(false); // ✅ NEW: lock switching during final modal
   const [time, setTime] = useState(new Date());
   const [stats, setStats] = useState<Stats>(() => {
-    // Load stats from localStorage on initial render
     const saved = localStorage.getItem("pipboy-stats");
     return saved ? JSON.parse(saved) : defaultStats;
   });
 
-  // Save stats to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem("pipboy-stats", JSON.stringify(stats));
   }, [stats]);
 
-  // Update time every second
   useEffect(() => {
     const interval = setInterval(() => {
       setTime(new Date());
@@ -52,6 +50,9 @@ export default function App() {
   const tabs: Tab[] = ["TASKS", "MAP", "RADIO", "GAME"];
 
   const handleTabChange = (tab: Tab) => {
+    // ✅ блокируем переключение, когда UI залочен модалкой
+    if (uiLocked) return;
+
     if (tab === activeTab || isLoading) return;
 
     setIsLoading(true);
@@ -67,7 +68,7 @@ export default function App() {
       Object.entries(statUpdates).forEach(([key, value]) => {
         updated[key as keyof Stats] = Math.min(
           10,
-          updated[key as keyof Stats] + value,
+          updated[key as keyof Stats] + (value ?? 0),
         );
       });
       return updated;
@@ -76,7 +77,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-black">
-      {/* Pip-Boy Screen - Full Screen */}
       <div className="relative w-full h-screen bg-black overflow-hidden">
         {/* CRT Scanlines Effect */}
         <div
@@ -95,7 +95,6 @@ export default function App() {
           }}
         />
 
-        {/* Content */}
         <div className="relative h-full flex flex-col text-green-400 font-mono p-6">
           {/* Header */}
           <div className="flex justify-between items-start mb-4 pb-3 border-b-2 border-green-400/30">
@@ -118,7 +117,7 @@ export default function App() {
               </div>
               <div className="text-sm opacity-70">
                 {new Date(
-                  1968,
+                  2177,
                   time.getMonth(),
                   time.getDate(),
                 ).toLocaleDateString()}
@@ -128,36 +127,43 @@ export default function App() {
 
           {/* Navigation Tabs */}
           <div className="flex gap-6 mb-6 pb-3 border-green-400/30">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                disabled={isLoading}
-                className={`relative px-4 py-2 transition-all ${
-                  activeTab === tab
-                    ? "text-green-400"
-                    : "text-green-400/40 hover:text-green-400/70"
-                } ${isLoading ? "cursor-wait" : ""}`}
-                style={
-                  activeTab === tab
-                    ? {
-                        textShadow:
-                          "0 0 10px rgba(0, 255, 0, 0.7)",
-                      }
-                    : {}
-                }
-              >
-                {tab}
-                {activeTab === tab && (
-                  <div
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400"
-                    style={{
-                      boxShadow: "0 0 5px rgba(0, 255, 0, 0.7)",
-                    }}
-                  />
-                )}
-              </button>
-            ))}
+            {tabs.map((tab) => {
+              const disabled = isLoading || uiLocked; // ✅ lock tabs while modal is shown
+
+              return (
+                <button
+                  key={tab}
+                  onClick={() => handleTabChange(tab)}
+                  disabled={disabled}
+                  className={`relative px-4 py-2 transition-all ${
+                    activeTab === tab
+                      ? "text-green-400"
+                      : "text-green-400/40 hover:text-green-400/70"
+                  } ${isLoading ? "cursor-wait" : ""} ${
+                    uiLocked ? "opacity-30 cursor-not-allowed" : ""
+                  }`}
+                  style={
+                    activeTab === tab
+                      ? {
+                          textShadow:
+                            "0 0 10px rgba(0, 255, 0, 0.7)",
+                        }
+                      : {}
+                  }
+                  title={uiLocked ? "LOCKED" : undefined}
+                >
+                  {tab}
+                  {activeTab === tab && (
+                    <div
+                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400"
+                      style={{
+                        boxShadow: "0 0 5px rgba(0, 255, 0, 0.7)",
+                      }}
+                    />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Tab Content */}
@@ -192,7 +198,7 @@ export default function App() {
             ) : (
               <>
                 {activeTab === "TASKS" && (
-                  <DataTab updateStats={updateStats} />
+                  <DataTab updateStats={updateStats} setUiLocked={setUiLocked} />
                 )}
                 {activeTab === "MAP" && <MapTab />}
                 {activeTab === "RADIO" && <RadioTab />}
